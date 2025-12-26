@@ -1,0 +1,11 @@
+{
+    "editor.formatOnSave": true,
+    "python.formatting.provider": "black",
+    "python.linting.enabled": true,
+    "python.linting.flake8Enabled": true,
+    "python.linting.flake8Path": "${workspaceFolder}/.venv/bin/flake8",
+    "python.formatting.blackPath": "${workspaceFolder}/.venv/bin/black",
+    "python.linting.flake8Args": [
+        "--max-line-length=88"
+    ]
+}
