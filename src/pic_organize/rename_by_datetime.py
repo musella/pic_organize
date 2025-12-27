@@ -77,18 +77,45 @@ def infer_datetime_from_filename(filename: str) -> Optional[datetime]:
     return None
 
 
-def propose_new_name(dt: datetime, ext: str) -> str:
+def extract_burst_tags(filename: str) -> str:
     """
-    Generate a new file name in the format IMG_YYYYMMDD_HHMMSS.ext.
+    Extract burst/cover tags from filename and return as a string to append.
+
+    Args:
+        filename (str): The original filename.
+
+    Returns:
+        str: Tag string to append (e.g., '_BURST001_COVER_001_COVER'), or '' if none.
+    """
+    base = os.path.basename(filename)
+    # Find all burst and cover tags in order of appearance
+    pattern = re.compile(r"BURST\d{0,3}(?:_COVER)?|\d{3}_COVER", re.IGNORECASE)
+    tags = []
+    seen = set()
+    for match in pattern.finditer(base):
+        tag = match.group(0)
+        # Avoid duplicates (e.g., cover tag inside burst tag)
+        if tag not in seen:
+            tags.append(tag)
+            seen.add(tag)
+    if tags:
+        return "_" + "_".join(tags)
+    return ""
+
+
+def propose_new_name(dt: datetime, ext: str, burst_tag: str = "") -> str:
+    """
+    Generate a new file name in the format IMG_YYYYMMDD_HHMMSS[_BURST...].ext.
 
     Args:
         dt (datetime): The date and time.
         ext (str): The file extension (including dot).
+        burst_tag (str): Tag string to append before extension.
 
     Returns:
         str: Proposed new file name.
     """
-    return f"IMG_{dt.strftime('%Y%m%d_%H%M%S')}{ext}"
+    return f"IMG_{dt.strftime('%Y%m%d_%H%M%S')}{burst_tag}{ext}"
 
 
 class RenameProposalItem(BaseModel):
@@ -128,8 +155,9 @@ def main():
         if not dt:
             dt = infer_datetime_from_filename(m.filename)
         ext = os.path.splitext(m.filename)[1].lower()
+        burst_tag = extract_burst_tags(m.filename)
         if dt:
-            new_name = propose_new_name(dt, ext)
+            new_name = propose_new_name(dt, ext, burst_tag)
             # Use full path for proposed
             proposed_full_path = os.path.join(os.path.dirname(m.filename), new_name)
             proposal.append(

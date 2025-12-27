@@ -73,6 +73,27 @@ stats = summarize_tags(media_tags)
 
 The script `src/pic_organize/rename_by_datetime.py` scans a directory for image and video files, extracts or infers their date and time, and generates a proposal to rename them in the format `IMG_YYYYMMDD_HHMMSS.ext`. Files without a determinable date/time are flagged for manual review.
 
+### Burst/Cover Tag Preservation
+
+If the original filename contains a burst or cover tag, the tag(s) are preserved in the proposed new filename. This helps keep burst photo sequences identifiable after renaming.
+
+**Recognized patterns:**
+- `BURST\d{0,3}(?:_COVER)?` (e.g., `BURST`, `BURST001`, `BURST_COVER`, `BURST001_COVER`)
+- `\d{3}_COVER` (e.g., `001_COVER`)
+
+**Behavior:**
+- All burst/cover tags found in the original filename are appended (in order of appearance) before the file extension in the new name.
+- If both types are present, both are preserved in order.
+- Non-burst files are not affected.
+
+**Example:**
+| Original Filename                         | Proposed Filename                       |
+|-------------------------------------------|-----------------------------------------|
+| IMG_20211231_235959_BURST.jpg             | IMG_20211231_235959_BURST.jpg           |
+| IMG_20211231_235959_BURST001_COVER.jpg    | IMG_20211231_235959_BURST001_COVER.jpg  |
+| IMG_20211231_235959_002_COVER.jpg         | IMG_20211231_235959_002_COVER.jpg       |
+| IMG_BURST2_003_COVER_BURST_COVER.jpg      | IMG_YYYYMMDD_HHMMSS_BURST2_003_COVER_BURST_COVER.jpg |
+
 **Features:**
 - Extracts date/time from EXIF or video metadata.
 - Infers date/time from filenames if metadata is missing.

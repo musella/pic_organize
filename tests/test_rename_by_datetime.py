@@ -3,6 +3,7 @@ from pic_organize.rename_by_datetime import (
     extract_datetime_from_tags,
     infer_datetime_from_filename,
     propose_new_name,
+    extract_burst_tags,
 )
 
 
@@ -45,5 +46,40 @@ def test_infer_datetime_from_filename_no_match():
 def test_propose_new_name():
     dt = datetime(2023, 3, 15, 8, 7, 6)
     ext = ".jpg"
+    # No burst tag
     name = propose_new_name(dt, ext)
     assert name == "IMG_20230315_080706.jpg"
+    # With burst tag
+    name2 = propose_new_name(dt, ext, "_BURST001")
+    assert name2 == "IMG_20230315_080706_BURST001.jpg"
+    # With multiple tags
+    name3 = propose_new_name(dt, ext, "_BURST001_COVER_002_COVER")
+    assert name3 == "IMG_20230315_080706_BURST001_COVER_002_COVER.jpg"
+
+
+def test_extract_burst_tags():
+    # Single burst
+    assert extract_burst_tags("IMG_20211231_235959_BURST.jpg") == "_BURST"
+    # Burst with number
+    assert extract_burst_tags("IMG_20211231_235959_BURST001.jpg") == "_BURST001"
+    # Burst with cover
+    assert extract_burst_tags("IMG_20211231_235959_BURST_COVER.jpg") == "_BURST_COVER"
+    # Burst with number and cover
+    assert (
+        extract_burst_tags("IMG_20211231_235959_BURST001_COVER.jpg")
+        == "_BURST001_COVER"
+    )
+    # Only cover pattern
+    assert extract_burst_tags("IMG_20211231_235959_002_COVER.jpg") == "_002_COVER"
+    # Both burst and cover
+    assert (
+        extract_burst_tags("IMG_20211231_235959_BURST2_003_COVER.jpg")
+        == "_BURST2_003_COVER"
+    )
+    # Multiple tags, order preserved
+    assert (
+        extract_burst_tags("IMG_BURST2_003_COVER_BURST_COVER.jpg")
+        == "_BURST2_003_COVER_BURST_COVER"
+    )
+    # No tag
+    assert extract_burst_tags("IMG_20211231_235959.jpg") == ""
