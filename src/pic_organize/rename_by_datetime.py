@@ -164,32 +164,7 @@ def main():
             ]
     else:
         media_tags: List[MediaTagInfo] = scan_media(src)
-    proposal: List[RenameProposalItem] = []
-    manual_review = []
-
-    for m in media_tags:
-        dt = extract_datetime_from_tags(m.tags, m.media_type)
-        if not dt:
-            dt = infer_datetime_from_filename(m.filename)
-        ext = os.path.splitext(m.filename)[1].lower()
-        burst_tag = extract_burst_tags(m.filename)
-        if dt:
-            new_name = propose_new_name(dt, ext, burst_tag)
-            # Use full path for proposed
-            proposed_full_path = os.path.join(os.path.dirname(m.filename), new_name)
-            proposal.append(
-                RenameProposalItem(original=m.filename, proposed=proposed_full_path)
-            )
-        else:
-            manual_review.append(m.filename)
-
-    # Ensure uniqueness of proposed names within the proposal
-    seen = set()
-    for item in proposal:
-        name = item.proposed
-        if name in seen:
-            item.note = "DUPLICATE_NAME"
-        seen.add(name)
+    proposal, manual_review = generate_rename_proposal(media_tags)
 
     with open("rename_proposal.json", "w") as f:
         json.dump(
@@ -200,6 +175,40 @@ def main():
     print(
         "Proposal saved to rename_proposal.json. Manual review list saved to manual_review.json."
     )
+
+
+def generate_rename_proposal(media_tags: List[MediaTagInfo]):
+    """
+    Generate a renaming proposal and manual review list from media_tags.
+    Returns (proposal, manual_review).
+    """
+    proposal: List[RenameProposalItem] = []
+    manual_review = []
+    proposed_name_counts = {}
+
+    for m in media_tags:
+        dt = extract_datetime_from_tags(m.tags, m.media_type)
+        if not dt:
+            dt = infer_datetime_from_filename(m.filename)
+        ext = os.path.splitext(m.filename)[1].lower()
+        burst_tag = extract_burst_tags(m.filename)
+        if dt:
+            base_new_name = propose_new_name(dt, ext, burst_tag)
+            dir_name = os.path.dirname(m.filename)
+            base_name, ext_only = os.path.splitext(base_new_name)
+            count = proposed_name_counts.get(base_new_name, 0)
+            if count == 0:
+                final_name = os.path.join(dir_name, base_new_name)
+            else:
+                postfix = f"_{count + 1:02d}"
+                final_name = os.path.join(dir_name, f"{base_name}{postfix}{ext_only}")
+            proposed_name_counts[base_new_name] = count + 1
+            proposal.append(
+                RenameProposalItem(original=m.filename, proposed=final_name)
+            )
+        else:
+            manual_review.append(m.filename)
+    return proposal, manual_review
 
 
 if __name__ == "__main__":

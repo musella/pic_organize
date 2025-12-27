@@ -1,9 +1,11 @@
 from datetime import datetime
+import os
 from pic_organize.rename_by_datetime import (
     extract_datetime_from_tags,
     infer_datetime_from_filename,
     propose_new_name,
     extract_burst_tags,
+    generate_rename_proposal,
 )
 
 
@@ -55,6 +57,54 @@ def test_propose_new_name():
     # With multiple tags
     name3 = propose_new_name(dt, ext, "_BURST001_COVER_002_COVER")
     assert name3 == "IMG_20230315_080706_BURST001_COVER_002_COVER.jpg"
+
+
+def test_duplicate_postfix_proposal():
+    # Use generate_rename_proposal to test duplicate handling
+    from pic_organize.tag_info import MediaTagInfo
+
+    dt = datetime(2023, 1, 2, 3, 4, 5)
+    filenames = [
+        "a1.jpg",
+        "a2.jpg",
+        "a3.jpg",
+    ]
+    media_tags = [
+        MediaTagInfo(
+            filename=f,
+            tags={"DateTimeOriginal": dt.strftime("%Y:%m:%d %H:%M:%S")},
+            media_type="image",
+        )
+        for f in filenames
+    ]
+    proposal, _ = generate_rename_proposal(media_tags)
+    proposed_names = [os.path.basename(item.proposed) for item in proposal]
+    assert proposed_names[0] == "IMG_20230102_030405.jpg"
+    assert proposed_names[1] == "IMG_20230102_030405_02.jpg"
+    assert proposed_names[2] == "IMG_20230102_030405_03.jpg"
+
+
+def test_duplicate_postfix_different_folders():
+    # Simulate two files in different folders that would get the same new name
+    from pic_organize.tag_info import MediaTagInfo
+
+    dt = datetime(2024, 4, 5, 6, 7, 8)
+    files = [
+        "folder1/original1.png",
+        "folder2/original2.png",
+    ]
+    media_tags = [
+        MediaTagInfo(
+            filename=f,
+            tags={"DateTimeOriginal": dt.strftime("%Y:%m:%d %H:%M:%S")},
+            media_type="image",
+        )
+        for f in files
+    ]
+    proposal, _ = generate_rename_proposal(media_tags)
+    proposed_names = [item.proposed for item in proposal]
+    assert proposed_names[0] == os.path.join("folder1", "IMG_20240405_060708.png")
+    assert proposed_names[1] == os.path.join("folder2", "IMG_20240405_060708_02.png")
 
 
 def test_extract_burst_tags():
