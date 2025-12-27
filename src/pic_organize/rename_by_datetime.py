@@ -12,6 +12,7 @@ import sys
 import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 from pic_organize.extract_tags import scan_media
 from pic_organize.tag_info import MediaTagInfo
 
@@ -90,6 +91,12 @@ def propose_new_name(dt: datetime, ext: str) -> str:
     return f"IMG_{dt.strftime('%Y%m%d_%H%M%S')}{ext}"
 
 
+class RenameProposalItem(BaseModel):
+    original: str
+    proposed: str
+    note: Optional[str] = None
+
+
 def main():
     """
     CLI entry point for generating file renaming proposals.
@@ -99,15 +106,21 @@ def main():
     No files are actually renamed.
 
     Usage:
-        python rename_by_datetime.py [directory]
+        python rename_by_datetime.py [src_directory|src_json_file]
     """
     # Accept directory path as first command-line argument, default to "."
     if len(sys.argv) > 1:
-        directory = sys.argv[1]
+        src = sys.argv[1]
     else:
-        directory = "."
-    media_tags: List[MediaTagInfo] = scan_media(directory)
-    proposal = []
+        src = "."
+    if src.endswith(".json"):
+        with open(src, "r") as f:
+            media_tags: List[MediaTagInfo] = [
+                MediaTagInfo(**item) for item in json.load(f)
+            ]
+    else:
+        media_tags: List[MediaTagInfo] = scan_media(src)
+    proposal: List[RenameProposalItem] = []
     manual_review = []
 
     for m in media_tags:
@@ -117,21 +130,26 @@ def main():
         ext = os.path.splitext(m.filename)[1].lower()
         if dt:
             new_name = propose_new_name(dt, ext)
-            proposal.append({"original": m.filename, "proposed": new_name})
+            # Use full path for proposed
+            proposed_full_path = os.path.join(os.path.dirname(m.filename), new_name)
+            proposal.append(
+                RenameProposalItem(original=m.filename, proposed=proposed_full_path)
+            )
         else:
             manual_review.append(m.filename)
 
     # Ensure uniqueness of proposed names within the proposal
     seen = set()
     for item in proposal:
-        name = item["proposed"]
+        name = item.proposed
         if name in seen:
-            # Uniqueness handling is a later story; for now, just flag
-            item["note"] = "DUPLICATE_NAME"
+            item.note = "DUPLICATE_NAME"
         seen.add(name)
 
     with open("rename_proposal.json", "w") as f:
-        json.dump(proposal, f, indent=2)
+        json.dump(
+            [item.model_dump(exclude_none=True) for item in proposal], f, indent=2
+        )
     with open("manual_review.json", "w") as f:
         json.dump(manual_review, f, indent=2)
     print(
