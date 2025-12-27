@@ -58,28 +58,34 @@ def test_propose_new_name():
 
 
 def test_extract_burst_tags():
-    # Single burst
-    assert extract_burst_tags("IMG_20211231_235959_BURST.jpg") == "_BURST"
-    # Burst with number
-    assert extract_burst_tags("IMG_20211231_235959_BURST001.jpg") == "_BURST001"
-    # Burst with cover
-    assert extract_burst_tags("IMG_20211231_235959_BURST_COVER.jpg") == "_BURST_COVER"
+    # Single burst (should pad to BURST00)
+    assert extract_burst_tags("IMG_20211231_235959_BURST.jpg") == "_BURST00"
+    # Burst with number (pad to 2 digits)
+    assert extract_burst_tags("IMG_20211231_235959_BURST1.jpg") == "_BURST01"
+    assert extract_burst_tags("IMG_20211231_235959_BURST01.jpg") == "_BURST01"
+    assert extract_burst_tags("IMG_20211231_235959_BURST9.jpg") == "_BURST09"
+    assert extract_burst_tags("IMG_20211231_235959_BURST10.jpg") == "_BURST10"
+    # Burst with cover (no number, pad to BURST00_COVER)
+    assert extract_burst_tags("IMG_20211231_235959_BURST_COVER.jpg") == "_BURST00_COVER"
     # Burst with number and cover
     assert (
-        extract_burst_tags("IMG_20211231_235959_BURST001_COVER.jpg")
-        == "_BURST001_COVER"
+        extract_burst_tags("IMG_20211231_235959_BURST1_COVER.jpg") == "_BURST01_COVER"
     )
-    # Only cover pattern
-    assert extract_burst_tags("IMG_20211231_235959_002_COVER.jpg") == "_002_COVER"
+    assert (
+        extract_burst_tags("IMG_20211231_235959_BURST09_COVER.jpg") == "_BURST09_COVER"
+    )
+    # Only cover pattern (pad to 2 digits)
+    assert extract_burst_tags("IMG_20211231_235959_2_COVER.jpg") == "_02_COVER"
+    assert extract_burst_tags("IMG_20211231_235959_12_COVER.jpg") == "_12_COVER"
     # Both burst and cover
     assert (
-        extract_burst_tags("IMG_20211231_235959_BURST2_003_COVER.jpg")
-        == "_BURST2_003_COVER"
+        extract_burst_tags("IMG_20211231_235959_BURST2_3_COVER.jpg")
+        == "_BURST02_03_COVER"
     )
     # Multiple tags, order preserved
     assert (
-        extract_burst_tags("IMG_BURST2_003_COVER_BURST_COVER.jpg")
-        == "_BURST2_003_COVER_BURST_COVER"
+        extract_burst_tags("IMG_BURST2_3_COVER_BURST_COVER.jpg")
+        == "_BURST02_03_COVER_BURST00_COVER"
     )
     # No tag
     assert extract_burst_tags("IMG_20211231_235959.jpg") == ""

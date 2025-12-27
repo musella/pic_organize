@@ -85,16 +85,33 @@ def extract_burst_tags(filename: str) -> str:
         filename (str): The original filename.
 
     Returns:
-        str: Tag string to append (e.g., '_BURST001_COVER_001_COVER'), or '' if none.
+        str: Tag string to append (e.g., '_BURST01_COVER_02_COVER'), or '' if none.
     """
     base = os.path.basename(filename)
     # Find all burst and cover tags in order of appearance
-    pattern = re.compile(r"BURST\d{0,3}(?:_COVER)?|\d{3}_COVER", re.IGNORECASE)
+    pattern = re.compile(r"BURST(\d{0,3})(?:_COVER)?|(\d{1,3})_COVER", re.IGNORECASE)
     tags = []
     seen = set()
     for match in pattern.finditer(base):
-        tag = match.group(0)
-        # Avoid duplicates (e.g., cover tag inside burst tag)
+        if match.group(0).startswith("BURST"):
+            # BURST tag, possibly with number and _COVER
+            num = match.group(1)
+            tag = match.group(0)
+            # If tag is exactly "BURST_COVER", pad to "BURST00_COVER"
+            if tag.upper() == "BURST_COVER":
+                tag = "BURST00_COVER"
+            elif num is not None and num != "":
+                padded = f"{int(num):02d}"
+                tag = tag.replace(f"BURST{num}", f"BURST{padded}")
+            elif tag.upper() == "BURST":
+                tag = "BURST00"
+        elif match.group(2):
+            # _COVER tag, with number
+            num = match.group(2)
+            padded = f"{int(num):02d}"
+            tag = f"{padded}_COVER"
+        else:
+            tag = match.group(0)
         if tag not in seen:
             tags.append(tag)
             seen.add(tag)
