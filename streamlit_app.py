@@ -290,7 +290,10 @@ def display_proposals():
                     st.session_state[edit_key] = new_proposed_name
                     # Update the actual proposal
                     directory = os.path.dirname(proposal.original)
-                    new_full_path = os.path.join(directory, new_proposed_name)
+                    if directory:
+                        new_full_path = os.path.join(directory, new_proposed_name)
+                    else:
+                        new_full_path = new_proposed_name
                     st.session_state.rename_proposals[original_idx].proposed = (
                         new_full_path
                     )
@@ -321,7 +324,10 @@ def display_proposals():
 
             # Show full path with current proposed name
             directory = os.path.dirname(proposal.original)
-            current_full_path = os.path.join(directory, current_proposed_name)
+            if directory:
+                current_full_path = os.path.join(directory, current_proposed_name)
+            else:
+                current_full_path = current_proposed_name
             st.write(f"**Full path:** `{current_full_path}`")
 
             if proposal.note:
@@ -554,8 +560,60 @@ def apply_renames_atomically(
     # Create atomic renamer with current media tags
     renamer = AtomicRenamer(st.session_state.media_tags)
 
+    # Check for and recover from any previous crash
+    if renamer.recover_from_journal():
+        st.warning("🔄 Recovered unsaved changes from previous interrupted session.")
+        # Reload media tags after recovery
+        if st.session_state.media_tags:
+            load_media_tags()
+
+    # Set up progress tracking for Streamlit
+    progress_bar = st.progress(0)
+    progress_text = st.empty()
+
+    def progress_callback(current: int, total: int, current_file: str):
+        """Update Streamlit progress indicators."""
+        try:
+            progress = current / total if total > 0 else 1.0
+            progress_bar.progress(
+                min(progress, 1.0)
+            )  # Ensure progress doesn't exceed 1.0
+            progress_text.text(f"Processing {current}/{total}: {current_file}")
+
+            # Show periodic saves every 100 entries
+            if (
+                renamer.unsaved_changes_count > 0
+                and renamer.unsaved_changes_count % 50 == 0
+            ):
+                progress_text.text(
+                    f"Processing {current}/{total}: {current_file} (unsaved changes: {renamer.unsaved_changes_count})"
+                )
+        except Exception as e:
+            # Fallback progress display if something goes wrong
+            progress_text.text(f"Processing: {current_file} (Error: {str(e)})")
+
     # Apply renames and get results
-    result = renamer.apply_renames(proposals, dry_run=dry_run, update_tags=True)
+    result = renamer.apply_renames(
+        proposals,
+        dry_run=dry_run,
+        update_tags=True,
+        progress_callback=progress_callback,
+    )
+
+    # Show completion status before clearing progress
+    if result.successful_operations:
+        progress_bar.progress(1.0)  # Show 100% completion
+        progress_text.text(
+            f"Completed: {len(result.successful_operations)}/{len(proposals)} operations"
+        )
+        # Keep the progress visible for a moment
+        import time
+
+        time.sleep(0.5)
+
+    # Clear progress indicators after showing completion
+    progress_bar.empty()
+    progress_text.empty()
 
     # Display conflicts if any
     if result.conflicts:
@@ -604,6 +662,25 @@ def apply_renames_atomically(
     return result.success_count
 
 
+def check_for_journal_recovery():
+    """Check for and handle journal recovery at startup."""
+    from pathlib import Path
+
+    journal_path = "media_tags_journal.json"
+    if Path(journal_path).exists():
+        # Create a temporary renamer to check for recovery
+        temp_renamer = AtomicRenamer()
+        if temp_renamer.recover_from_journal():
+            st.success(
+                "🔄 Recovered unsaved changes from previous interrupted session!"
+            )
+            # Reload media tags if available
+            if Path("media_tags.json").exists():
+                load_media_tags()
+            return True
+    return False
+
+
 def main():
     """Main Streamlit application."""
     st.set_page_config(
@@ -617,6 +694,12 @@ def main():
 
     # Initialize session state
     init_session_state()
+
+    # Check for journal recovery on first load
+    if "journal_checked" not in st.session_state:
+        if check_for_journal_recovery():
+            st.rerun()  # Refresh to load recovered data
+        st.session_state.journal_checked = True
 
     # Sidebar configuration
     with st.sidebar:

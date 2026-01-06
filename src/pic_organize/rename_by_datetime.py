@@ -18,10 +18,51 @@ from pic_organize.tag_info import MediaTagInfo
 
 # Patterns for inferring date/time from filenames (e.g., IMG_20211231_235959.jpg)
 FILENAME_PATTERNS = [
+    # Original patterns
     re.compile(r"(\d{4})(\d{2})(\d{2})[_\-]?(\d{2})(\d{2})(\d{2})"),
     re.compile(r"(\d{4})-(\d{2})-(\d{2})[_\-]?(\d{2})-(\d{2})-(\d{2})"),
     re.compile(r"(\d{4})-(\d{2})-(\d{2})[_\-](\d{2})(\d{2})(\d{2})"),
+    # New patterns from analysis
+    re.compile(r"Screenshot from (\d{4})-(\d{2})-(\d{2}) (\d{2})-(\d{2})-(\d{2})"),
+    re.compile(r"/(\d{4})-(\d{2})-(\d{2})[_\-]?(\d{2})?[_\-]?(\d{2})?[_\-]?(\d{2})?"),
+    re.compile(r"/(\d{4})-(\d{2})[\-_]"),
+    re.compile(r"/(\d{4})_(\d{2})_(\d{2})"),  # YYYY_MM_DD directory format
+    re.compile(r"P([1-9A-C])(\d{2})(\d{4})"),
+    re.compile(r"IMG_(\d{4})\.(MOV|JPG)", re.IGNORECASE),
+    re.compile(r"(\d{2})\.(\d{2})\.(\d{2})"),
+    re.compile(
+        r"(\d{4})-(\d{2})-(\d{2}) (\d{2})\.(\d{2})\.(\d{2})"
+    ),  # YYYY-MM-DD HH.MM.SS format
+    re.compile(
+        r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*(\d{2})", re.IGNORECASE
+    ),
 ]
+
+
+def load_exclude_patterns() -> List[str]:
+    """Load exclude folder patterns from JSON file."""
+    try:
+        exclude_patterns_file = os.path.join(
+            os.path.dirname(__file__), "..", "..", "data", "exclude_patterns.json"
+        )
+        with open(exclude_patterns_file, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        # Fallback to default patterns if file doesn't exist or is invalid
+        print(f"Warning: Could not load exclude patterns from JSON file: {e}")
+        return []
+
+
+# Load exclude patterns from JSON file
+EXCLUDE_FOLDER_PATTERNS = load_exclude_patterns()
+
+
+def should_exclude_file(filepath: str) -> bool:
+    """Check if file should be excluded from datetime extraction based on folder patterns."""
+    for pattern in EXCLUDE_FOLDER_PATTERNS:
+        if re.search(pattern, filepath):
+            return True
+    return False
 
 
 def extract_datetime_from_tags(
@@ -55,6 +96,174 @@ def extract_datetime_from_tags(
     return None
 
 
+def extract_screenshot_datetime(match) -> Optional[datetime]:
+    """Extract datetime from 'Screenshot from YYYY-MM-DD HH-MM-SS' pattern."""
+    year, month, day, hour, minute, second = match.groups()
+    return datetime(
+        int(year), int(month), int(day), int(hour), int(minute), int(second)
+    )
+
+
+def extract_directory_full_date(match, filepath: str) -> Optional[datetime]:
+    """Extract date from directory names like '/2008-04-04_05_06'."""
+    groups = match.groups()
+    if len(groups) >= 3:
+        year, month, day = groups[:3]
+        hour = int(groups[3]) if len(groups) > 3 and groups[3] else 12
+        minute = int(groups[4]) if len(groups) > 4 and groups[4] else 0
+        second = int(groups[5]) if len(groups) > 5 and groups[5] else 0
+        return datetime(int(year), int(month), int(day), hour, minute, second)
+    return None
+
+
+def extract_directory_year_month(match, filepath: str) -> Optional[datetime]:
+    """Extract date from directory names like '/2007-01-Parigi'."""
+    year, month = match.groups()
+    return datetime(int(year), int(month), 1, 12, 0, 0)
+
+
+def extract_directory_yyyy_mm_dd(match, filepath: str) -> Optional[datetime]:
+    """Extract date from directory names like '/2022_02_LaThuille/'."""
+    year, month, day = match.groups()
+    return datetime(int(year), int(month), int(day), 12, 0, 0)
+
+
+def extract_camera_p_pattern(
+    match, filepath: str, media_tags_lookup: Optional[Dict] = None
+) -> Optional[datetime]:
+    """Extract date from camera patterns like P8051152.JPG."""
+    filename = os.path.basename(filepath)
+
+    # First try to get datetime from media_tags.json lookup if available
+    if media_tags_lookup and filename in media_tags_lookup:
+        datetime_str = media_tags_lookup[filename]
+        try:
+            # Parse EXIF datetime format: "2017:03:13 20:59:36"
+            return datetime.strptime(datetime_str, "%Y:%m:%d %H:%M:%S")
+        except ValueError:
+            pass
+
+    # Fallback to filename pattern analysis
+    month_code = match.group(1).upper()
+    numbers = match.group(2)
+
+    # Month code mapping (P1=Jan, P2=Feb, ..., PA=Oct, PB=Nov, PC=Dec)
+    month_map = {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "A": 10,
+        "B": 11,
+        "C": 12,
+    }
+
+    if month_code not in month_map:
+        return None
+
+    month = month_map[month_code]
+
+    # Extract day from numbers (first 1-2 digits typically)
+    if len(numbers) >= 2:
+        day = int(numbers[:2])
+        if day < 1 or day > 31:
+            day = int(numbers[0]) if numbers[0] != "0" else 1
+    else:
+        day = int(numbers[0]) if numbers and numbers[0] != "0" else 1
+
+    # Default to reasonable year for this camera type
+    year = 2012  # Typical for this camera model era
+
+    return datetime(year, month, day, 12, 0, 0)
+
+
+def extract_img_number_context(match, filepath: str) -> Optional[datetime]:
+    """Extract date from IMG_XXXX.MOV patterns using directory context."""
+    # Extract year from directory path
+    year_pattern = re.compile(r"(19\d{2}|20\d{2})")
+    year_matches = year_pattern.findall(filepath)
+    if year_matches:
+        year = int(year_matches[-1])
+
+        # Look for month in directory path
+        month_patterns = [
+            (r"[\-_]01[\-_]", 1),
+            (r"[\-_]02[\-_]", 2),
+            (r"[\-_]03[\-_]", 3),
+            (r"[\-_]04[\-_]", 4),
+            (r"[\-_]05[\-_]", 5),
+            (r"[\-_]06[\-_]", 6),
+            (r"[\-_]07[\-_]", 7),
+            (r"[\-_]08[\-_]", 8),
+            (r"[\-_]09[\-_]", 9),
+            (r"[\-_]10[\-_]", 10),
+            (r"[\-_]11[\-_]", 11),
+            (r"[\-_]12[\-_]", 12),
+        ]
+
+        month = 6  # default
+        for pattern, m in month_patterns:
+            if re.search(pattern, filepath):
+                month = m
+                break
+
+        return datetime(year, month, 1, 12, 0, 0)
+
+    return None
+
+
+def extract_date_dots(match) -> Optional[datetime]:
+    """Extract date from DD.MM.YY format."""
+    day, month, year = match.groups()
+    year_int = int(year)
+    if year_int < 50:  # Assume 20xx
+        year_int += 2000
+    else:  # Assume 19xx
+        year_int += 1900
+
+    return datetime(year_int, int(month), int(day), 12, 0, 0)
+
+
+def extract_date_time_with_dots(match) -> Optional[datetime]:
+    """Extract date from 'YYYY-MM-DD HH.MM.SS' format."""
+    year, month, day, hour, minute, second = match.groups()
+    return datetime(
+        int(year), int(month), int(day), int(hour), int(minute), int(second)
+    )
+
+
+def extract_month_year_text(match) -> Optional[datetime]:
+    """Extract date from 'apr 17' style patterns."""
+    month_map = {
+        "jan": 1,
+        "feb": 2,
+        "mar": 3,
+        "apr": 4,
+        "may": 5,
+        "jun": 6,
+        "jul": 7,
+        "aug": 8,
+        "sep": 9,
+        "oct": 10,
+        "nov": 11,
+        "dec": 12,
+    }
+
+    month_str = match.group(1).lower()
+    year_str = match.group(2)
+
+    if month_str in month_map:
+        year_int = 2000 + int(year_str)  # Assume 20xx
+        return datetime(year_int, month_map[month_str], 15, 12, 0, 0)
+
+    return None
+
+
 def infer_datetime_from_filename(filename: str) -> Optional[datetime]:
     """
     Infer date/time from filename using regex patterns.
@@ -65,13 +274,41 @@ def infer_datetime_from_filename(filename: str) -> Optional[datetime]:
     Returns:
         Optional[datetime]: Parsed datetime if found, else None.
     """
+    # Check if file should be excluded based on folder patterns
+    if should_exclude_file(filename):
+        return None
+
     base = os.path.basename(filename)
-    for pattern in FILENAME_PATTERNS:
-        m = pattern.search(base)
-        if m:
+
+    # Try each pattern in order
+    for i, pattern in enumerate(FILENAME_PATTERNS):
+        # Use full path for directory patterns, basename for others
+        search_text = filename if i in [4, 5, 6] else base
+        match = pattern.search(search_text)
+
+        if match:
             try:
-                y, mo, d, h, mi, s = map(int, m.groups())
-                return datetime(y, mo, d, h, mi, s)
+                if i == 3:  # Screenshot pattern
+                    return extract_screenshot_datetime(match)
+                elif i == 4:  # Directory full date pattern
+                    return extract_directory_full_date(match, filename)
+                elif i == 5:  # Directory year-month pattern
+                    return extract_directory_year_month(match, filename)
+                elif i == 6:  # Directory YYYY_MM_DD pattern
+                    return extract_directory_yyyy_mm_dd(match, filename)
+                elif i == 7:  # Camera P pattern
+                    return extract_camera_p_pattern(match, filename)
+                elif i == 8:  # IMG context pattern
+                    return extract_img_number_context(match, filename)
+                elif i == 9:  # Date dots pattern
+                    return extract_date_dots(match)
+                elif i == 10:  # Date time with dots pattern (YYYY-MM-DD HH.MM.SS)
+                    return extract_date_time_with_dots(match)
+                elif i == 11:  # Month year text pattern
+                    return extract_month_year_text(match)
+                else:  # Original patterns (0, 1, 2)
+                    y, mo, d, h, mi, s = map(int, match.groups())
+                    return datetime(y, mo, d, h, mi, s)
             except Exception:
                 continue
     return None

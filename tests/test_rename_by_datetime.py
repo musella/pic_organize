@@ -139,3 +139,159 @@ def test_extract_burst_tags():
     )
     # No tag
     assert extract_burst_tags("IMG_20211231_235959.jpg") == ""
+
+
+def test_screenshot_pattern():
+    """Test screenshot datetime extraction."""
+    filename = "Screenshot from 2021-01-21 21-52-18.png"
+    result = infer_datetime_from_filename(filename)
+    expected = datetime(2021, 1, 21, 21, 52, 18)
+    assert result == expected
+
+
+def test_directory_full_date_pattern():
+    """Test directory-based full date extraction."""
+    filepath = "/media/Pictures/2008-04-04_05_06/P4051152.JPG"
+    result = infer_datetime_from_filename(filepath)
+    expected = datetime(2008, 4, 4, 5, 6, 0)
+    assert result == expected
+
+
+def test_directory_year_month_pattern():
+    """Test directory-based year-month extraction."""
+    filepath = "/media/Pictures/2007-01-Parigi/IMG_1234.JPG"
+    result = infer_datetime_from_filename(filepath)
+    expected = datetime(2007, 1, 1, 12, 0, 0)
+    assert result == expected
+
+
+def test_directory_yyyy_mm_dd_pattern():
+    """Test YYYY_MM_DD directory format extraction."""
+    filepath = "/media/Pictures/2022_02_03/IMG_6191.JPG"
+    result = infer_datetime_from_filename(filepath)
+    expected = datetime(2022, 2, 3, 12, 0, 0)  # Day extracted from directory pattern
+    assert result == expected
+
+
+def test_camera_p_pattern():
+    """Test camera P-pattern extraction."""
+    filename = "P8051152.JPG"
+    result = infer_datetime_from_filename(filename)
+    expected = datetime(2012, 8, 5, 12, 0, 0)  # Month 8, day 5
+    assert result == expected
+
+    # Test different month codes
+    assert infer_datetime_from_filename("P1151152.JPG") == datetime(
+        2012, 1, 15, 12, 0, 0
+    )
+    assert infer_datetime_from_filename("PA051152.JPG") == datetime(
+        2012, 10, 5, 12, 0, 0
+    )
+    assert infer_datetime_from_filename("PB251152.JPG") == datetime(
+        2012, 11, 25, 12, 0, 0
+    )
+    assert infer_datetime_from_filename("PC311152.JPG") == datetime(
+        2012, 12, 31, 12, 0, 0
+    )
+
+
+def test_img_context_pattern():
+    """Test IMG context-based extraction."""
+    filepath = "/media/Pictures/2023_01_06/IMG_1464.MOV"
+    result = infer_datetime_from_filename(filepath)
+    expected = datetime(
+        2023, 1, 6, 12, 0, 0
+    )  # Year 2023, month 1, day 6 (from directory)
+    assert result == expected
+
+    # Test with different year/month combinations
+    filepath2 = "/media/Pictures/2020_05_vacation/IMG_9876.MOV"
+    result2 = infer_datetime_from_filename(filepath2)
+    expected2 = datetime(2020, 5, 1, 12, 0, 0)
+    assert result2 == expected2
+
+
+def test_date_dots_pattern():
+    """Test DD.MM.YY format extraction."""
+    filename = "05.03.17.JPG"
+    result = infer_datetime_from_filename(filename)
+    expected = datetime(2017, 3, 5, 12, 0, 0)
+    assert result == expected
+
+    # Test 19xx year
+    filename2 = "25.12.95.JPG"
+    result2 = infer_datetime_from_filename(filename2)
+    expected2 = datetime(1995, 12, 25, 12, 0, 0)
+    assert result2 == expected2
+
+
+def test_month_year_text_pattern():
+    """Test month abbreviation extraction."""
+    filename = "IMG 0199 apr 17.JPG"
+    result = infer_datetime_from_filename(filename)
+    expected = datetime(2017, 4, 15, 12, 0, 0)
+    assert result == expected
+
+    # Test different months
+    assert infer_datetime_from_filename("photo jan 20.jpg") == datetime(
+        2020, 1, 15, 12, 0, 0
+    )
+    assert infer_datetime_from_filename("test DEC 19.png") == datetime(
+        2019, 12, 15, 12, 0, 0
+    )
+
+
+def test_pattern_priority():
+    """Test that patterns are applied in correct priority order."""
+    # Original patterns should still work
+    filename1 = "IMG_20211231_235959.jpg"
+    result1 = infer_datetime_from_filename(filename1)
+    assert result1 == datetime(2021, 12, 31, 23, 59, 59)
+
+    # Screenshot pattern should work
+    filename2 = "Screenshot from 2021-01-21 21-52-18.png"
+    result2 = infer_datetime_from_filename(filename2)
+    assert result2 == datetime(2021, 1, 21, 21, 52, 18)
+
+
+def test_date_time_with_dots_pattern():
+    """Test YYYY-MM-DD HH.MM.SS format extraction."""
+    filename = "2012-01-10 15.38.59.jpg"
+    result = infer_datetime_from_filename(filename)
+    expected = datetime(2012, 1, 10, 15, 38, 59)
+    assert result == expected
+
+
+def test_folder_exclusion():
+    """Test that files in excluded folders return None."""
+    # Test excluded folders
+    assert (
+        infer_datetime_from_filename("/Pictures/2011-04-23-Matrimonio/IMG_1234.JPG")
+        is None
+    )
+    assert infer_datetime_from_filename("/Pictures/Da_Titti/P8051152.JPG") is None
+    assert infer_datetime_from_filename("/Pictures/echographie_baby/scan.jpg") is None
+    assert (
+        infer_datetime_from_filename("/Pictures/echographie_2023/ultrasound.jpg")
+        is None
+    )
+
+    # Test that normal files still work
+    assert infer_datetime_from_filename(
+        "/Pictures/normal/IMG_20211231_235959.jpg"
+    ) == datetime(2021, 12, 31, 23, 59, 59)
+
+
+def test_no_match_edge_cases():
+    """Test edge cases that should not match."""
+    # Invalid P pattern
+    assert infer_datetime_from_filename("PX051152.JPG") is None
+
+    # Invalid date
+    assert infer_datetime_from_filename("32.13.99.JPG") is None
+
+    # Invalid month abbreviation
+    assert infer_datetime_from_filename("xyz 17.jpg") is None
+
+    # Random file
+    assert infer_datetime_from_filename("randomfile.txt") is None

@@ -132,3 +132,12 @@ cython_debug/
 .vscode/
 
 backlog
+scratch
+
+*_validation_*
+media_tags.*
+additional_pattern_analysis.json
+manual_review.json
+rename_proposal.json
+tag_summary.json
+data/exclude_patterns.json

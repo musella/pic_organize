@@ -96,10 +96,55 @@ If the original filename contains a burst or cover tag, the tag(s) are preserved
 
 **Features:**
 - Extracts date/time from EXIF or video metadata.
-- Infers date/time from filenames if metadata is missing.
+- Infers date/time from filenames using advanced pattern recognition.
 - Generates a proposal (`rename_proposal.json`) mapping original to proposed names.
 - Files needing manual review are listed in `manual_review.json`.
 - No files are actually renamed until reviewed and approved.
+- **Folder exclusion system** to skip problematic directories.
+
+### Advanced Datetime Pattern Recognition
+
+The system now supports **9 different datetime extraction patterns** to maximize automatic file processing:
+
+1. **Standard formats**: `IMG_YYYYMMDD_HHMMSS.jpg`, `YYYY-MM-DD_HH-MM-SS.mov`
+2. **Screenshot patterns**: `Screenshot from YYYY-MM-DD HH-MM-SS.png`
+3. **Directory-based dates**: 
+   - `/YYYY-MM-DD_HH_MM_SS/filename.jpg` (full datetime from path)
+   - `/YYYY-MM-location/filename.jpg` (year-month from path)
+   - `/YYYY_MM_DD/filename.jpg` (underscore format)
+4. **Camera patterns**: `P8051152.JPG` (month+day encoded, P8=August, 05=day)
+5. **IMG context**: `IMG_1464.MOV` (uses directory date context)
+6. **Date dots**: `05.03.17.JPG` (DD.MM.YY format)
+7. **Date with spaces**: `2012-01-10 15.38.59.jpg` (YYYY-MM-DD HH.MM.SS)
+8. **Month abbreviations**: `IMG 0199 apr 17.JPG` (month text with year)
+
+**Coverage Improvement**: From ~20% to 66.9% automatic processing (excludes problematic folders)
+
+### Folder Exclusion System
+
+Certain folders can be excluded from automatic datetime extraction to avoid processing:
+- **Wedding/Event photos**: `/2011-04-23-Matrimonio/`
+- **Personal collections**: `/Da_Titti/`  
+- **Medical scans**: `/echographie_*/` (any echography folder)
+
+Files in excluded folders are automatically sent to manual review for appropriate handling.
+
+**Configuration**: Edit `EXCLUDE_FOLDER_PATTERNS` in `src/pic_organize/rename_by_datetime.py`
+
+### Pattern Priority and Validation
+
+Patterns are applied in priority order for optimal results:
+1. Original standard formats (highest precision)
+2. Screenshot patterns (exact timestamps)
+3. Directory-based patterns (contextual dating)
+4. Camera-specific patterns (brand/model specific)
+5. Fallback patterns (dots, text months)
+
+**Validation Tools**:
+- Run `poetry run python tests/validate_pattern_improvements.py` for coverage analysis
+- Exports detailed CSV results for manual review
+- Pattern breakdown statistics
+- Before/after comparison metrics
 
 **Usage:**
 ```bash
@@ -200,6 +245,48 @@ Examples:
 - **Conflict detection**: Checks for existing destination files
 - **Progress tracking**: Clear feedback on operation success/failure
 - **Manual review**: Files without datetime are flagged for human review
+
+## Performance and Crash Recovery
+
+### Batched Saving
+The application now uses **batched saving** for improved performance during large rename operations:
+
+- **Saves media tags every 100 entries** instead of after each individual rename
+- **Configurable batch size** (default: 100) via `save_batch_size` property
+- **100x fewer disk writes** for large operations, significantly improving performance
+- **Final save guarantee** ensures no data loss for remaining unsaved changes
+
+### Journal-Based Crash Recovery
+The application includes robust crash recovery to protect against data loss:
+
+- **Automatic journaling**: All tag updates are logged to `media_tags_journal.json`
+- **Crash recovery**: On startup, the application automatically detects and recovers unsaved changes
+- **Safe operation**: Journal writing errors don't break the main rename process
+- **Automatic cleanup**: Journal files are automatically removed after successful saves
+- **User notification**: Recovery operations are clearly communicated to users
+
+#### Journal File Format
+```json
+[
+  {
+    "timestamp": 1234567890.0,
+    "operation": "tag_update", 
+    "old_path": "original_file.jpg",
+    "new_path": "renamed_file.jpg"
+  }
+]
+```
+
+### Progress Reporting
+Enhanced progress feedback for better user experience:
+
+- **Real-time progress bar** showing completion percentage
+- **File-by-file updates** displaying current file being processed
+- **Batch save notifications** showing unsaved changes count
+- **Works for both dry runs and actual operations**
+- **Completion confirmation** before clearing progress indicators
+
+These features ensure that large media organization tasks are both efficient and safe, with protection against interruptions and clear feedback on progress.
 
 ## Manual Review Files
 
