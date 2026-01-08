@@ -69,7 +69,72 @@ media_tags = scan_media("/path/to/media")
 stats = summarize_tags(media_tags)
 ```
 
-## Renaming Files by Date and Time
+## Renaming Folders by Time or Album
+
+The `src/pic_organize/analyze_folders.py` script analyzes media folders and generates rename proposals based on time ranges or album names.
+
+### Features
+
+- **Time-based renaming**: Folders are renamed to reflect the time range of their contents (e.g., `2007_03-04` for March to April 2007).
+- **Album detection**: Folders containing media files with consistent metadata or descriptive names are identified as albums and renamed accordingly (e.g., `2007_03_Vacanze`).
+- **Multi-year albums**: Albums spanning multiple years are renamed with the full time range (e.g., `2006_12-2007_01_Christmas`).
+
+### Usage
+
+1. **Analyze folders**:
+    ```bash
+    poetry run python src/pic_organize/analyze_folders.py [directory]
+    ```
+    If no directory is specified, the current directory is used.
+
+2. **Review proposals**:
+    - The script generates a `rename_proposal.json` file with the proposed folder names.
+    - Folders requiring manual review are listed in `manual_review.json`.
+
+3. **Apply changes**:
+    - Rename proposals can be reviewed and applied using the Streamlit interface or a custom script.
+
+### Example
+
+Original folder structure:
+```
+/media
+    /2007_03
+        IMG_001.jpg
+        IMG_002.jpg
+    /2007_04
+        IMG_003.jpg
+        IMG_004.jpg
+    /Christmas_2006
+        IMG_005.jpg
+        IMG_006.jpg
+```
+
+Proposed folder structure:
+```
+/media
+    /2007_03-04
+        IMG_001.jpg
+        IMG_002.jpg
+        IMG_003.jpg
+        IMG_004.jpg
+    /2006_12-2007_01_Christmas
+        IMG_005.jpg
+        IMG_006.jpg
+```
+
+### Configuration
+
+- **Album detection**: Customize album keywords and patterns in `src/pic_organize/album_detection.py`.
+- **Exclusions**: Exclude specific folders from processing by editing `EXCLUDE_FOLDER_PATTERNS` in `src/pic_organize/analyze_folders.py`.
+
+### Validation
+
+Run the test suite to ensure functionality:
+```bash
+pytest tests/
+```
+
 
 The script `src/pic_organize/rename_by_datetime.py` scans a directory for image and video files, extracts or infers their date and time, and generates a proposal to rename them in the format `IMG_YYYYMMDD_HHMMSS.ext`. Files without a determinable date/time are flagged for manual review.
 
