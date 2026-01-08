@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from .rename_by_datetime import RenameProposalItem
 from .tag_info import MediaTagInfo
+from .analyze_folders import FolderRenameProposal
 
 
 @dataclass
@@ -80,6 +81,91 @@ class AtomicRenamer:
                 operations.append((src_path, dst_path, proposal))
 
         return operations, conflicts
+
+    def validate_folder_operations(
+        self, proposals: List[FolderRenameProposal]
+    ) -> Tuple[List[Tuple[Path, Path, FolderRenameProposal]], List[str]]:
+        """
+        Validate folder rename operations and return valid operations and conflicts.
+
+        Args:
+            proposals: List of folder rename proposals to validate
+
+        Returns:
+            Tuple of (valid_operations, conflicts)
+        """
+        operations = []
+        conflicts = []
+
+        for proposal in proposals:
+            src_path = Path(proposal.original_path)
+            dst_path = Path(proposal.proposed_path)
+
+            # Check source folder exists
+            if not src_path.exists():
+                conflicts.append(f"Source folder no longer exists: {src_path}")
+                continue
+
+            if not src_path.is_dir():
+                conflicts.append(f"Source is not a directory: {src_path}")
+                continue
+
+            # Create parent directory for destination if needed
+            try:
+                dst_path.parent.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                conflicts.append(f"Cannot create parent directory for {dst_path}: {e}")
+                continue
+
+            # Check for destination conflicts
+            if dst_path.exists() and dst_path != src_path:
+                conflicts.append(
+                    f"Destination already exists: {src_path} -> {dst_path}"
+                )
+                continue
+
+            # Check if any existing conflicts were already detected
+            if proposal.conflicts_with:
+                conflicts.extend(proposal.conflicts_with)
+                continue
+
+            # Only include if paths are actually different
+            if src_path != dst_path:
+                operations.append((src_path, dst_path, proposal))
+
+        return operations, conflicts
+
+    def update_media_tags_for_folder_rename(
+        self, old_folder_path: str, new_folder_path: str
+    ) -> int:
+        """
+        Update media tags for all files affected by a folder rename.
+
+        Args:
+            old_folder_path: Original folder path
+            new_folder_path: New folder path
+
+        Returns:
+            Number of tags updated
+        """
+        import os
+
+        updated_count = 0
+        old_folder_path = str(Path(old_folder_path))
+        new_folder_path = str(Path(new_folder_path))
+
+        for tag in self.media_tags:
+            if tag.filename.startswith(old_folder_path):
+                # Calculate the new path for this file
+                relative_path = tag.filename[len(old_folder_path) :].lstrip(os.sep)
+                new_file_path = str(Path(new_folder_path) / relative_path)
+
+                # Update the tag
+                tag.tags["renamed_from"] = tag.filename
+                tag.filename = new_file_path
+                updated_count += 1
+
+        return updated_count
 
     def update_media_tags(self, old_path: str, new_path: str) -> bool:
         """
@@ -189,6 +275,10 @@ class AtomicRenamer:
 
             # Clear journal after successful save
             self.clear_journal()
+        else:
+            # Don't overwrite existing tags file with empty data
+            # This prevents data loss during recovery operations
+            print(f"Warning: Not saving empty media tags to {output_path}")
 
     def apply_renames(
         self,
@@ -259,6 +349,101 @@ class AtomicRenamer:
                                 "tag_update", str(src_path), str(dst_path)
                             )
                             self.unsaved_changes_count += 1
+
+                            # Save media tags every batch_size entries
+                            if self.unsaved_changes_count >= self.save_batch_size:
+                                self.save_media_tags()
+                                self.unsaved_changes_count = 0
+
+            except Exception as e:
+                failed_operations.append((src_path, dst_path, str(e)))
+
+        # Save any remaining unsaved changes (but reset counter for dry runs too)
+        if update_tags and self.unsaved_changes_count > 0:
+            if not dry_run:
+                self.save_media_tags()
+            # Reset counter regardless of dry run status
+            self.unsaved_changes_count = 0
+
+        return RenameResult(
+            success_count=success_count,
+            failed_operations=failed_operations,
+            successful_operations=successful_operations,
+            conflicts=conflicts,
+        )
+
+    def apply_folder_renames(
+        self,
+        proposals: List[FolderRenameProposal],
+        dry_run: bool = False,
+        update_tags: bool = True,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> RenameResult:
+        """
+        Apply folder rename operations atomically.
+
+        Args:
+            proposals: List of folder rename proposals to apply
+            dry_run: If True, simulate operations without actually renaming folders
+            update_tags: If True, update media tags with new folder paths
+            progress_callback: Optional callback function to report progress.
+                             Called with (current, total, current_folder) parameters.
+
+        Returns:
+            RenameResult with operation details
+        """
+        # Validate all operations first
+        operations, conflicts = self.validate_folder_operations(proposals)
+
+        if not operations:
+            return RenameResult(
+                success_count=0,
+                failed_operations=[],
+                successful_operations=[],
+                conflicts=conflicts,
+            )
+
+        # Apply operations
+        success_count = 0
+        failed_operations = []
+        successful_operations = []
+        total_operations = len(operations)
+
+        for i, (src_path, dst_path, proposal) in enumerate(operations, 1):
+            try:
+                # Report progress if callback provided
+                if progress_callback:
+                    progress_callback(i, total_operations, str(src_path.name))
+
+                if dry_run:
+                    # In dry run mode, just simulate the operation
+                    success_count += 1
+                    successful_operations.append((src_path, dst_path))
+
+                    # Simulate tag updates for progress tracking (without actually updating)
+                    if update_tags:
+                        # Check if we would update tags (without actually doing it)
+                        for tag in self.media_tags:
+                            if tag.filename.startswith(str(src_path)):
+                                self.unsaved_changes_count += 1
+                                break
+                else:
+                    # Actual folder rename operation
+                    shutil.move(str(src_path), str(dst_path))
+                    success_count += 1
+                    successful_operations.append((src_path, dst_path))
+
+                    # Update media tags if requested
+                    if update_tags:
+                        updated_count = self.update_media_tags_for_folder_rename(
+                            str(src_path), str(dst_path)
+                        )
+                        if updated_count > 0:
+                            # Journal the change for crash recovery
+                            self.write_journal_entry(
+                                "folder_rename", str(src_path), str(dst_path)
+                            )
+                            self.unsaved_changes_count += updated_count
 
                             # Save media tags every batch_size entries
                             if self.unsaved_changes_count >= self.save_batch_size:

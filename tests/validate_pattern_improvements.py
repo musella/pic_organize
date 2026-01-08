@@ -41,20 +41,20 @@ def validate_pattern_improvements():
 
     coverage = (matched / len(files)) * 100
 
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"Total files: {len(files)}")
     print(f"Files matched: {matched}")
     print(f"Coverage: {coverage:.1f}%")
 
-    print(f"\nSample successful matches:")
-    for filepath, dt in sample_matches:
-        print(f"✓ {filepath} -> {dt}")
+    print("\nSample successful matches:")
+    for filepath, dtime in sample_matches:
+        print(f"✓ {filepath} -> {dtime}")
 
-    print(f"\nSample files still needing manual review:")
+    print("\nSample files still needing manual review:")
     for filepath in sample_no_matches:
         print(f"✗ {filepath}")
 
-    print(f"\nSUMMARY:")
+    print("\nSUMMARY:")
     print(f"- Improved coverage from ~20% to {coverage:.1f}%")
     print(f"- Successfully rescued {matched} files from manual review")
     print(f"- Remaining {len(files) - matched} files still need manual attention")
